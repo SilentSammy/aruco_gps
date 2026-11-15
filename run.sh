@@ -3,6 +3,41 @@
 # Usage: ./run.sh [extra args passed to main.py]
 cd "$(dirname "$0")" || exit 1
 
+# Stop an older instance from this checkout before opening the camera.  This
+# avoids the common "device busy" failure when run.sh is launched again after
+# a previous terminal or supervisor was closed unexpectedly.
+SCRIPT_DIR=$(pwd -P)
+CURRENT_PID=$$
+OLD_PIDS=()
+if command -v pgrep >/dev/null 2>&1; then
+  while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    [ "$pid" = "$CURRENT_PID" ] && continue
+    cmd=$(ps -p "$pid" -o args= 2>/dev/null || true)
+    case "$cmd" in
+      *camera_stream.py*|*main.py*--camera-source*)
+      process_dir=$(readlink "/proc/$pid/cwd" 2>/dev/null || true)
+      [ "$process_dir" = "$SCRIPT_DIR" ] && OLD_PIDS+=("$pid")
+      ;;
+    esac
+  done < <(pgrep -f 'camera_stream.py|main.py.*--camera-source' || true)
+fi
+if [ "${#OLD_PIDS[@]}" -gt 0 ]; then
+  echo "Stopping previous vision instance(s): ${OLD_PIDS[*]}"
+  kill "${OLD_PIDS[@]}" 2>/dev/null || true
+  for _ in {1..20}; do
+    alive=false
+    for pid in "${OLD_PIDS[@]}"; do
+      kill -0 "$pid" 2>/dev/null && alive=true
+    done
+    "$alive" || break
+    sleep 0.25
+  done
+  for pid in "${OLD_PIDS[@]}"; do
+    kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true
+  done
+fi
+
 source .venv/bin/activate || exit 1
 
 # An explicit setup (or a help request) skips the interactive menu.
