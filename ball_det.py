@@ -6,7 +6,10 @@ import numpy as np
 
 
 class BallDetector:
-    def __init__(self):
+    def __init__(self, radius_m=0.02):
+        if not np.isfinite(radius_m) or radius_m <= 0:
+            raise ValueError('ball radius must be positive and finite')
+        self.radius_m = float(radius_m)
         lower, upper = (100, 100, 35), (130, 255, 255)
         try:
             lines = Path(__file__).with_name("ball_thresholds.txt").read_text().splitlines()
@@ -19,6 +22,10 @@ class BallDetector:
         except (OSError, UnicodeError, ValueError):
             pass
         self.lower, self.upper = np.array(lower, np.uint8), np.array(upper, np.uint8)
+
+    def to_dict(self):
+        return dict(kind='hsv', radius_m=self.radius_m,
+                    lower_hsv=self.lower.tolist(), upper_hsv=self.upper.tolist())
 
     def detect(self, frame):
         hsv = cv2.cvtColor(cv2.GaussianBlur(frame, (11, 11), 0), cv2.COLOR_BGR2HSV)

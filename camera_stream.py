@@ -21,6 +21,7 @@ import numpy as np
 
 from frame_stream import (CameraStreamError, FramePublisher, SharedFrameReader,
                           default_stream_dir, descriptor, request_stop, service_running)
+from runtime_status import send_status_response
 
 
 class JpegFrames:
@@ -76,7 +77,7 @@ class JpegFrames:
             return self.sequence, self.jpeg, self.captured_ns
 
 
-def make_handler(frames, max_viewers=8):
+def make_handler(frames, max_viewers=8, status_directory=None):
     slots = threading.BoundedSemaphore(max_viewers)
 
     class Handler(BaseHTTPRequestHandler):
@@ -86,6 +87,10 @@ def make_handler(frames, max_viewers=8):
         def do_GET(self):
             self.connection.settimeout(3)
             path = self.path.split("?", 1)[0]
+            if path == '/api/v1/status':
+                camera = dict(frames.reader.status(), session=frames.reader.info['session'])
+                send_status_response(self, status_directory or default_stream_dir(), camera)
+                return
             if path == "/health":
                 info = frames.reader.status()
                 info.update({"viewers": frames.viewers, "encoder_error": frames.error,
@@ -170,7 +175,8 @@ def serve_http(argv):
     frames = JpegFrames(reader, args.fps, args.max_width, args.quality)
     server = None
     try:
-        server = ThreadingHTTPServer((args.bind, args.port), make_handler(frames))
+        server = ThreadingHTTPServer((args.bind, args.port),
+                                    make_handler(frames, status_directory=args.stream_dir))
         server.daemon_threads = True
         worker = threading.Thread(target=frames.encode, daemon=True)
         worker.start()

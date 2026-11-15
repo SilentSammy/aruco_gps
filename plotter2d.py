@@ -25,7 +25,68 @@ MARKER_OVERRIDES = {
 }
 
 
+class _PortableBoard:
+    """Drawing-only board geometry reconstructed from JSON metadata."""
+    image_path = None
+
+    def __init__(self, metadata):
+        self.metadata = metadata
+        for key in ('dimensions_m', 'print_dimensions_m'):
+            values = metadata[key]
+            if len(values) != 2 or not all(np.isfinite(v) and v > 0 for v in values):
+                raise ValueError('invalid board dimensions')
+
+    def get_board_dimensions(self):
+        return self.metadata['dimensions_m']
+
+    def get_print_dimensions(self):
+        return self.metadata['print_dimensions_m']
+
+    def generate_image(self, width_px):
+        board_width, _ = self.get_board_dimensions()
+        print_width, print_height = self.get_print_dimensions()
+        scale = width_px / board_width
+        width, height = round(print_width * scale), round(print_height * scale)
+        image = np.full((height, width, 3), 255, np.uint8)
+        dictionary = self.metadata.get('dictionary')
+        if dictionary and hasattr(cv2, 'aruco'):
+            dictionary = cv2.aruco.Dictionary(
+                np.array(dictionary['bytes_list'], dtype=np.uint8),
+                int(dictionary['marker_size']), int(dictionary['max_correction_bits']))
+            for marker_id, corners in zip(self.metadata['marker_ids'], self.metadata['marker_corners_m']):
+                destination = np.asarray(corners, np.float32)[:, :2] * scale + (width / 2, height / 2)
+                marker = cv2.aruco.generateImageMarker(dictionary, marker_id, 128)
+                transform = cv2.getPerspectiveTransform(
+                    np.array([[0, 0], [127, 0], [127, 127], [0, 127]], np.float32),
+                    destination.astype(np.float32))
+                warped = cv2.warpPerspective(marker, transform, (width, height), borderValue=255)
+                image = np.minimum(image, cv2.cvtColor(warped, cv2.COLOR_GRAY2BGR))
+        return image
+
+
 class BoardPlotter2D:
+    @classmethod
+    def from_metadata(cls, setup, width_px=800):
+        """Build from VisionSetup.to_dict(), without server image paths."""
+        board = _PortableBoard(setup['board'])
+        overrides = {int(key): {k: v for k, v in style.items() if k != 'image'}
+                     for key, style in setup.get('marker_overrides', {}).items()}
+        plotter = cls(board, None, margin=setup.get('plot_margin_m', .2),
+                      width_px=width_px, marker_overrides=overrides)
+        plotter.marker_size_m = setup.get('marker_size_m', .09)
+        ball = setup.get('ball_detector')
+        plotter.ball_radius_m = ball['radius_m'] if ball else .02
+        return plotter
+
+    def render_packet(self, packet):
+        """Render published Cartesian poses through the standard marker renderer."""
+        markers = [(int(marker['id']), _square_corners(
+            (marker['x'], -marker['y']), self.marker_size_m,
+            np.radians(marker['angle'])), False) for marker in packet.get('markers', ())]
+        return self.render(markers if packet.get('board_detected') else (),
+                           packet.get('balls', ()) if packet.get('board_detected') else (),
+                           self.ball_radius_m)
+
     def __init__(self, board_config, marker_dictionary, margin=0.05, width_px=800,
                  marker_overrides=None):
         self.board_config = board_config
@@ -49,8 +110,8 @@ class BoardPlotter2D:
         self.marker_mask = np.full((128, 128), 255, np.uint8)
         self.background = np.full((self.height, self.width, 3), 255, np.uint8)
 
-        image_path = Path(board_config.image_path)
-        if image_path.is_file():
+        image_path = Path(board_config.image_path) if board_config.image_path else None
+        if image_path is not None and image_path.is_file():
             board_image = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
             if board_image is None:
                 raise OSError(f"Could not load board image: {image_path}")

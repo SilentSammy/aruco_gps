@@ -9,7 +9,10 @@ import numpy as np
 import threading
 import time
 
-from frame_stream import CameraStreamError, FileMutex, SharedFrameReader, default_stream_dir, service_running
+if __package__:
+    from .frame_stream import CameraStreamError, FileMutex, SharedFrameReader, default_stream_dir, service_running
+else:
+    from frame_stream import CameraStreamError, FileMutex, SharedFrameReader, default_stream_dir, service_running
 
 def rotate_intrinsics(rotation, K, image_size):
     """Rotate camera intrinsics for rotated image.
@@ -98,6 +101,12 @@ class Camera:
             width, height = self.capture_size_wh
         return LatestCamera(self.device_candidates, width, height,
                             self.capture_fps if fps is None else fps, self.capture_fourcc)
+
+    def to_dict(self):
+        return dict(capture_size_wh=self.capture_size_wh, capture_fps=self.capture_fps,
+                    capture_fourcc=self.capture_fourcc, rotation=self.rotation,
+                    calibration_size_wh=self.calibration_size_wh,
+                    calibration_fit=self.calibration_fit)
 
     def intrinsics_for_frame(self, shape):
         """Map reference calibration to actual capture pixels before rotation."""

@@ -2,10 +2,15 @@ import os
 
 import numpy as np
 import cv2
-import cam_config
-import board_config
-import board_est
-import plotter2d
+if __package__:
+    from . import cam_config, board_config, board_est, plotter2d
+    from .ball_det import BallDetector
+else:
+    import cam_config
+    import board_config
+    import board_est
+    import plotter2d
+    from ball_det import BallDetector
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -16,6 +21,8 @@ class VisionSetup:
     board: board_config.BoardConfig
     detector: cv2.aruco.ArucoDetector
     marker_height_m: float
+    marker_size_m: float = 0.09
+    ball_detector: object | None = None
     marker_config_path: Path | str | None = None
     plot_margin_m: float = 0.2
     rotate_180: bool = False
@@ -25,6 +32,8 @@ class VisionSetup:
     )
 
     def __post_init__(self):
+        if not np.isfinite(self.marker_size_m) or self.marker_size_m <= 0:
+            raise ValueError('marker_size_m must be positive and finite')
         self.board_estimator = board_est.BoardEstimator(
             board_config=self.board,
             K=self.camera.K,
@@ -42,6 +51,21 @@ class VisionSetup:
                 margin=self.plot_margin_m,
             )
         return self._plotter
+
+    def to_dict(self, name=None):
+        """Configuration data usable without camera hardware or server files."""
+        dictionary = self.detector.getDictionary()
+        return dict(schema='aruco-gps.setup/v1', name=name, board=self.board.to_dict(),
+                    camera=self.camera.to_dict(),
+                    coordinates=dict(length_unit='m', angle_unit='deg',
+                                     origin='board_center', x='right', y='up',
+                                     heading_zero='+x', heading_positive='counterclockwise'),
+                    marker_size_m=self.marker_size_m, marker_height_m=self.marker_height_m,
+                    marker_dictionary=dict(marker_size=dictionary.markerSize,
+                                           max_correction_bits=dictionary.maxCorrectionBits,
+                                           bytes_list=dictionary.bytesList.tolist()),
+                    ball_detector=(self.ball_detector.to_dict() if self.ball_detector else None),
+                    plot_margin_m=self.plot_margin_m, rotate_180=self.rotate_180)
 
 def _get_webcam_image():
     source = getattr(_get_webcam_image, "source", None)
@@ -116,6 +140,7 @@ VISION_SETUPS = {
         board=board_160cm,
         detector=_aruco_detector4,
         marker_height_m=0.12,
+        ball_detector=BallDetector(radius_m=0.02),
         marker_config_path=Path(__file__).with_name("marker_config.json"),
     ),
 }

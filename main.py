@@ -3,6 +3,8 @@ import json
 import math
 import time
 import uuid
+import subprocess
+import hashlib
 from pathlib import Path
 
 import cv2
@@ -13,6 +15,7 @@ from telemetry import TelemetryPublisher
 from cam_config import camera_for_setup
 from frame_stream import CameraStreamError, default_stream_dir
 from vision_setup import DEFAULT_SETUP, VISION_SETUPS
+from runtime_status import write_status, serve_status
 
 DEFAULT_TELEMETRY_PORT = 5000
 # Captured from the lab desktop. Values are x, y, client width, client height;
@@ -157,11 +160,8 @@ def argument_parser():
     parser.add_argument("--stream-dir", type=Path, default=default_stream_dir(),
                         help="local camera service runtime directory")
     parser.add_argument("--headless", action="store_true", help="run without camera/board windows")
-    balls = parser.add_mutually_exclusive_group()
-    balls.add_argument("--ball-detection", action="store_true", help="enable blue ball detection (default: off)")
-    balls.add_argument("--no-ball-detection", dest="ball_detection", action="store_false")
-    parser.set_defaults(ball_detection=False)
-    parser.add_argument("--ball-height", type=float, default=0.02, help="ball centre height in metres")
+    parser.add_argument('--status-bind', default='0.0.0.0', help='HTTP bind for direct capture')
+    parser.add_argument('--status-port', type=int, default=8080, help='HTTP port for direct capture')
     parser.add_argument("--max-frames", type=int, help="stop after this many processed frames (testing)")
     for name, geometry in DEFAULT_WINDOW_LAYOUT.items():
         parser.add_argument(f"--{name.lower()}-window", type=int, nargs=4,
@@ -204,10 +204,10 @@ def argument_parser():
 def main(argv=None):
     parser = argument_parser()
     args = parser.parse_args(argv)
-    if not math.isfinite(args.ball_height) or args.ball_height < 0:
-        parser.error("--ball-height must be finite and nonnegative")
     if args.max_frames is not None and args.max_frames < 1:
         parser.error("--max-frames must be positive")
+    if not 0 <= args.status_port <= 65535:
+        parser.error('invalid status port')
     if not 1 <= args.port <= 65534:
         parser.error("--port must leave room for the subscription port (1-65534)")
     if args.subscription_port is not None and not 1 <= args.subscription_port <= 65535:
@@ -216,6 +216,8 @@ def main(argv=None):
         if geometry[2] < 1 or geometry[3] < 1:
             parser.error("Window width and height must be positive")
     setup = VISION_SETUPS[args.setup] if args.setup is not None else DEFAULT_SETUP
+    setup_name = next((name for name, value in VISION_SETUPS.items() if value is setup), None)
+    print(f'Vision setup: {setup_name}; ball detection: {setup.ball_detector is not None}', flush=True)
 
     subscription_port = args.subscription_port or args.port + 1
     if args.broadcast is None:
@@ -243,10 +245,7 @@ def main(argv=None):
     if plotter is not None:
         apply_marker_appearances(plotter, default_appearances, appearances)
     tracker = MarkerTracker()
-    ball_detector = None
-    if args.ball_detection:
-        from ball_det import BallDetector
-        ball_detector = BallDetector()
+    ball_detector = setup.ball_detector
     try:
         telemetry_publisher = TelemetryPublisher(args.broadcast, args.port, subscription_port)
     except OSError as error:
@@ -256,6 +255,23 @@ def main(argv=None):
 
     stream_id = (frame_source.source.info.get("session")
                  if frame_source and frame_source.mode == "stream" else uuid.uuid4().hex)
+    status = dict(setup=setup.to_dict(setup_name),
+                  telemetry=dict(data_port=args.port, subscription_port=subscription_port,
+                                 configured_rate_hz=args.rate, stream_id=stream_id),
+                  vision=dict(healthy=False, board_detected=False, stream_id=stream_id))
+    try:
+        revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'],
+                                          cwd=Path(__file__).parent, timeout=1,
+                                          stderr=subprocess.DEVNULL, text=True).strip()
+    except (OSError, subprocess.SubprocessError):
+        revision = None
+    digest = hashlib.sha256()
+    for source in sorted(Path(__file__).parent.glob('*.py')):
+        digest.update(source.name.encode())
+        digest.update(source.read_bytes())
+    status['software'] = dict(name='aruco_gps', revision=revision, source_sha256=digest.hexdigest())
+    status_at = 0.
+    status_server = None
 
     stats_at = last_plot = time.monotonic()
     next_telemetry = stats_at + telemetry_interval
@@ -263,6 +279,9 @@ def main(argv=None):
     processed_frames = 0
 
     try:
+        if (not frame_source or frame_source.mode != 'stream' or
+                not frame_source.source.info.get('http')):
+            status_server = serve_status(args.stream_dir, args.status_bind, args.status_port)
         if not args.headless:
             cv2.namedWindow("Camera", cv2.WINDOW_NORMAL)
             cv2.namedWindow("Board", cv2.WINDOW_NORMAL)
@@ -291,7 +310,7 @@ def main(argv=None):
             if board_result is not None:
                 for _, centroid in ball_detections:
                     x, y = estimator.project_point_to_board(
-                        board_result[1], centroid, frame.shape, z=args.ball_height)
+                        board_result[1], centroid, frame.shape, z=ball_detector.radius_m)
                     if math.isfinite(x) and math.isfinite(y):
                         balls.append({"x": round(float(x), 3), "y": round(float(-y), 3)})
             markers = []
@@ -347,7 +366,8 @@ def main(argv=None):
                     cv2.drawContours(frame, [contour], -1, (0, 255, 255), 2)
                 cv2.imshow("Camera", frame)
             if plotter is not None and (processed_frames == 0 or vision_done - last_plot >= 0.1):
-                cv2.imshow("Board", plotter.render(markers, balls, ball_radius=args.ball_height))
+                cv2.imshow("Board", plotter.render(markers, balls,
+                           ball_radius=ball_detector.radius_m if ball_detector else .02))
                 last_plot = vision_done
             if not args.headless and processed_frames == 0:
                 for name, geometry in (("Camera", args.camera_window), ("Board", args.board_window)):
@@ -377,6 +397,19 @@ def main(argv=None):
                 # loop accidentally publishing every second frame at ~5 Hz.
                 next_telemetry = max(next_telemetry + telemetry_interval, vision_done)
             plot_done = time.monotonic()
+            if plot_done >= status_at:
+                status['setup']['marker_overrides'] = {
+                    str(key): {k: v for k, v in style.items() if k != 'image'}
+                    for key, style in appearances.items()}
+                status['setup']['marker_heights_m'] = {str(key): value
+                                                        for key, value in marker_heights.items()}
+                status['vision'] = dict(healthy=True, board_detected=board_result is not None,
+                                        stream_id=stream_id, processed_frames=processed_frames,
+                                        subscribers=telemetry_publisher.subscriber_count,
+                                        frame_shape=list(frame.shape),
+                                        telemetry_rate_hz=publications / max(.001, plot_done - stats_at))
+                write_status(args.stream_dir, status)
+                status_at = plot_done + 1.
 
             frames += 1
             read_time += read_done - started
@@ -405,6 +438,11 @@ def main(argv=None):
     except KeyboardInterrupt:
         return 130
     finally:
+        status['vision']['healthy'] = False
+        write_status(args.stream_dir, status)
+        if status_server:
+            status_server.shutdown()
+            status_server.server_close()
         telemetry_publisher.close()
         camera.release()
         if not args.headless:

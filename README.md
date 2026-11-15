@@ -13,9 +13,12 @@ confirmation. The vision service currently has a Linux launcher:
 bash run.sh
 ```
 
-The launcher prompts for a setup and ball detection, runs camera capture and
+The launcher prompts for a setup, runs camera capture and
 pose tracking in one terminal, and stops its child processes on Ctrl+C. Pass
-`--setup setup_160cm --ball-detection` to skip those prompts. Network setup is
+`--setup setup_160cm` to skip that prompt. Ball detection is enabled when the
+selected `VisionSetup` contains a `BallDetector`; the detector owns its physical
+radius and HSV configuration. The default 160 cm setup includes ball detection.
+Network setup is
 separate; this project never configures a hotspot.
 
 Default telemetry uses UDP port 5000 broadcast and unicast subscriptions on
@@ -35,6 +38,22 @@ while running. `ball_thresholds.txt` sets optional ball detection thresholds.
 The provided setup reflects the lab camera; other installations need their own
 calibration and board settings. See `python main.py --help` and
 `python camera_stream.py --run-vision --help` for additional options.
+
+`GET http://HOST:8080/api/v1/status` returns the selected setup, portable board
+geometry, marker size, ball radius/detection settings, coordinate convention,
+camera health, vision health, telemetry ports/rate, stream identity and software
+revision. HTTP 503 includes the same configuration when vision is unhealthy.
+Camera health alone remains available at `/health`. The vision process writes
+an atomic runtime snapshot once per second; it expires after three seconds.
+Direct capture serves the status endpoint itself (`--status-bind/--status-port`).
+The camera service serves it alongside its viewer in stream mode.
+
+`VisionSetup.to_dict(name)` is JSON-safe and contains no server-local artwork
+paths. `BoardPlotter2D.from_metadata(setup)` reconstructs the board from geometry
+and ArUco dictionary data; `render_packet(packet)` draws published marker poses
+and balls using setup sizes. Local rendering can still use original image assets
+and corner-based `render()`. These components can be imported through the
+`aruco_gps` package without opening a camera.
 
 For a camera-free smoke test:
 

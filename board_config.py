@@ -92,6 +92,17 @@ class BoardConfig:
     def image_path(self):
         """Get image filepath with .png extension."""
         return f"{self.filename}.png"
+
+    def to_dict(self):
+        """Portable geometry, independent of image files or OpenCV objects."""
+        return dict(dimensions_m=list(self.get_board_dimensions()),
+                    print_dimensions_m=list(self.get_print_dimensions()),
+                    marker_ids=list(self.board_marker_ids),
+                    marker_corners_m=[(corners - self.center).tolist()
+                                      for corners in self.board.getObjPoints()],
+                    dictionary=dict(marker_size=self.dictionary.markerSize,
+                                    max_correction_bits=self.dictionary.maxCorrectionBits,
+                                    bytes_list=self.dictionary.bytesList.tolist()))
     
     @property
     def pdf_path(self):
