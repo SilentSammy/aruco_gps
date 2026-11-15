@@ -38,7 +38,11 @@ if [ "${#OLD_PIDS[@]}" -gt 0 ]; then
   done
 fi
 
-source .venv/bin/activate || exit 1
+PYTHON="$SCRIPT_DIR/.venv/bin/python"
+if [ ! -x "$PYTHON" ]; then
+  echo "Python environment missing at $PYTHON; set up .venv first." >&2
+  exit 1
+fi
 
 # An explicit setup (or a help request) skips the interactive menu.
 SELECT_SETUP=true
@@ -50,7 +54,7 @@ done
 
 if "$SELECT_SETUP"; then
   # Query the actual setups so names and print dimensions stay in sync.
-  SETUP_DATA=$(python - <<'PY'
+  SETUP_DATA=$("$PYTHON" - <<'PY'
 from vision_setup import DEFAULT_SETUP, VISION_SETUPS
 
 for name, setup in VISION_SETUPS.items():
@@ -108,4 +112,4 @@ fi
 echo "Starting camera streaming and vision. Press Ctrl+C to stop both."
 # Replace Bash with the supervisor so terminal signals reach it directly.
 # Both child processes inherit this terminal; the supervisor owns their cleanup.
-exec python -u -B camera_stream.py --run-vision "$@"
+exec "$PYTHON" -u -B camera_stream.py --run-vision "$@"
