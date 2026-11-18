@@ -22,8 +22,16 @@ Network setup is
 separate; this project never configures a hotspot.
 
 Default telemetry uses UDP port 5000 broadcast and unicast subscriptions on
-port 5001. The launcher broadcasts to `255.255.255.255` unless a specific
-address is supplied, e.g. `bash run.sh --broadcast 192.168.12.255`.
+port 5001. On Linux the launcher detects active hotspot interfaces using `iw`
+and prefers their directed subnet broadcast over the internet connection.
+With one available LAN it selects that LAN. Ambiguous networks prompt for a
+choice, saved locally in ignored `.network-choice.json`; unattended ambiguous
+launches require `--telemetry-interface NAME` or `--broadcast ADDRESS`.
+For example: `bash run.sh --telemetry-interface wlp1s0` or
+`bash run.sh --broadcast 192.168.12.255`. No subnet or adapter is hard-coded.
+The launcher prints broadcast, subscription and camera viewer addresses.
+It reads existing network state and never connects/disconnects adapters.
+Windows discovery can list IPv4 LANs but does not detect hotspot roles.
 Clients send `POSE_SUBSCRIBE` once per second to port 5001 from the socket
 that receives data; send `POSE_UNSUBSCRIBE` when finished. The legacy packet
 format and broadcast feed remain compatible with existing robot firmware.

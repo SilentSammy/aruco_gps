@@ -176,6 +176,7 @@ def argument_parser():
         choices=VISION_SETUPS,
         help="vision setup (uses DEFAULT_SETUP from vision_setup.py if omitted)",
     )
+    parser.add_argument('--telemetry-interface', help='network interface selected by run.sh for telemetry')
     parser.add_argument(
         "--broadcast",
         default=None,

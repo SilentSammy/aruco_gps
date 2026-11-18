@@ -105,9 +105,9 @@ HAS_BROADCAST=false
 for arg in "$@"; do
   case "$arg" in --broadcast|--broadcast=*) HAS_BROADCAST=true ;; esac
 done
+BROADCAST=$("$PYTHON" network_config.py "$@") || exit 1
 if ! "$HAS_BROADCAST"; then
-  # Preserve the legacy broadcast feed without assuming a particular subnet.
-  set -- --broadcast 255.255.255.255 "$@"
+  set -- --broadcast "$BROADCAST" "$@"
 fi
 echo "Starting camera streaming and vision. Press Ctrl+C to stop both."
 # Replace Bash with the supervisor so terminal signals reach it directly.
