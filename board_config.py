@@ -126,10 +126,14 @@ class BoardConfig:
         pass
     
     def get_print_dimensions(self):
-        """Return (width, height) for printing including margins.
+        """Return printable field bounds as ``(width, height)`` in metres.
+
+        The base implementation adds the symmetric print margins to the board
+        content dimensions. Subclasses only need to describe their grid/content
+        geometry through :meth:`get_board_dimensions`.
         
         Returns:
-            tuple: (print_width, print_height) in meters
+            tuple: (print_width, print_height) in metres
         """
         board_width, board_height = self.get_board_dimensions()
         

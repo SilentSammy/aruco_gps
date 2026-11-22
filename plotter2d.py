@@ -95,10 +95,10 @@ class BoardPlotter2D:
             MARKER_OVERRIDES if marker_overrides is None else marker_overrides
         )
         self.board_width, self.board_height = board_config.get_board_dimensions()
-        print_width, print_height = board_config.get_print_dimensions()
+        self.print_width, self.print_height = board_config.get_print_dimensions()
 
-        world_width = max(print_width, self.board_width + 2 * margin)
-        world_height = max(print_height, self.board_height + 2 * margin)
+        world_width = max(self.print_width, self.board_width + 2 * margin)
+        world_height = max(self.print_height, self.board_height + 2 * margin)
         self.scale = width_px / world_width
         self.width = width_px
         self.height = round(world_height * self.scale)
@@ -119,8 +119,8 @@ class BoardPlotter2D:
                 board_image = cv2.cvtColor(board_image, cv2.COLOR_GRAY2BGR)
 
             target_size = (
-                round(print_width * self.scale),
-                round(print_height * self.scale),
+                round(self.print_width * self.scale),
+                round(self.print_height * self.scale),
             )
             interpolation = (
                 cv2.INTER_AREA
@@ -136,8 +136,8 @@ class BoardPlotter2D:
             )
         self._paste_center(board_image)
 
-        half_w = round(print_width * self.scale / 2)
-        half_h = round(print_height * self.scale / 2)
+        half_w = round(self.print_width * self.scale / 2)
+        half_h = round(self.print_height * self.scale / 2)
         center = (self.width // 2, self.height // 2)
         cv2.rectangle(
             self.background,
