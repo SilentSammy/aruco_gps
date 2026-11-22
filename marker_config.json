@@ -1,5 +1,9 @@
 {
   "0": { "color": [255, 180, 220], "text": "6" },
+  "1": { "image": "resources/sprites/car1.png", "size_m": 0.15, "stretch": true },
+  "2": { "image": "resources/sprites/car2.png", "size_m": 0.15, "stretch": true },
+  "3": { "image": "resources/sprites/car3.png", "size_m": 0.15, "stretch": true },
+  "4": { "image": "resources/sprites/car4.png", "size_m": 0.15, "stretch": true },
   "8": { "image": "resources/sprites/laughing_crying_emoji.png", "scale": 1.0 },
   "9": { "image": "resources/sprites/cool_cat.png", "scale": 1.0 }
 }

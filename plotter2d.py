@@ -180,6 +180,9 @@ class BoardPlotter2D:
             if not np.isfinite(image_scale) or image_scale <= 0:
                 raise ValueError(f"Marker {marker_id}: image scale must be positive and finite")
             size *= image_scale
+            size = float(override.get('size_m', size))
+            if not np.isfinite(size) or size <= 0:
+                raise ValueError(f'Marker {marker_id}: image size_m must be positive and finite')
 
         center = corners.mean(axis=0)
         direction = corners[1] - corners[0]
@@ -206,12 +209,12 @@ class BoardPlotter2D:
         if image_path is not None:
             # Callers can supply decoded pixels to avoid file IO while rendering.
             if isinstance(image_path, np.ndarray):
-                cache_key = ("image", id(image_path))
+                cache_key = ("image", id(image_path), override.get('stretch', False))
             else:
                 image_path = Path(image_path)
                 if not image_path.is_absolute():
                     image_path = Path(__file__).resolve().parent / image_path
-                cache_key = ("image", str(image_path.resolve()))
+                cache_key = ("image", str(image_path.resolve()), override.get('stretch', False))
             marker = self.marker_images.get(cache_key)
             if marker is None:
                 source = (image_path if isinstance(image_path, np.ndarray)
@@ -224,11 +227,12 @@ class BoardPlotter2D:
                     source = cv2.cvtColor(source, cv2.COLOR_GRAY2BGRA)
                 elif source.shape[2] == 3:
                     source = cv2.cvtColor(source, cv2.COLOR_BGR2BGRA)
-                # Fit the image without distortion; leave padding transparent.
+                # Fit with transparent padding, or stretch to fill the square.
                 height, width = source.shape[:2]
                 scale = 128 / max(height, width)
                 target = (max(1, round(width * scale)),
                           max(1, round(height * scale)))
+                if override.get('stretch', False): target = (128, 128)
                 resized = cv2.resize(
                     source, target,
                     interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_NEAREST,
